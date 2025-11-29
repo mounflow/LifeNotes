@@ -1,18 +1,25 @@
-import { GoogleGenAI } from "@google/genai";
+/// <reference types="vite/client" />
 import { WorkItem, Series, CATEGORY_LABELS } from "../types";
 
-const getClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key not found");
+// The client is now provided by a backend proxy. Front-end no longer accesses API keys.
+// Helper to call the backend generate endpoint.
+const callBackendGenerate = async (prompt: string, model: string = "gemini-2.5-flash") => {
+  const response = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, prompt }),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error ?? "Backend generation failed");
   }
-  return new GoogleGenAI({ apiKey });
+  const data = await response.json();
+  return data.text as string;
 };
 
 // 1. 周报生成 (Weekly Report)
 export const generateWeeklyReport = async (items: WorkItem[], startDate: Date, endDate: Date): Promise<string> => {
-  const ai = getClient();
-  
+
   const itemsText = items.map(i => {
     const titlePart = i.title ? `[标题: ${i.title}] ` : '';
     return `- [${i.category}] ${new Date(i.date).toLocaleDateString()}: ${titlePart}${i.content} (${i.durationMinutes} min)`;
@@ -34,30 +41,26 @@ export const generateWeeklyReport = async (items: WorkItem[], startDate: Date, e
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-    return response.text || "生成报告失败。";
+    const text = await callBackendGenerate(prompt);
+    return text || "生成报告失败。";
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    if (import.meta.env.DEV) console.error("Gemini API Error:", error);
     throw new Error("无法连接到 AI 服务。");
   }
 };
 
 // 2. 专题结案/总结 (Series Conclusion)
 export const generateSeriesConclusion = async (series: Series, items: WorkItem[]): Promise<string> => {
-    const ai = getClient();
-    
-    // Sort items by date
-    const sortedItems = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const itemsText = sortedItems.map(i => {
-      const titlePart = i.title ? `[标题: ${i.title}] ` : '';
-      return `- ${new Date(i.date).toLocaleDateString()}: ${titlePart}${i.content}`;
-    }).join('\n');
-  
-    const prompt = `
+  // Sort items by date
+  const sortedItems = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const itemsText = sortedItems.map(i => {
+    const titlePart = i.title ? `[标题: ${i.title}] ` : '';
+    return `- ${new Date(i.date).toLocaleDateString()}: ${titlePart}${i.content}`;
+  }).join('\n');
+
+  const prompt = `
       用户完成了一个名为“${series.title}”的长期专题/目标。
       描述: ${series.description}
   
@@ -74,34 +77,28 @@ export const generateSeriesConclusion = async (series: Series, items: WorkItem[]
       4. **结构**: 包含引言、核心观点阐述（分点）、精彩摘录（如果有）和结语。
       5. **格式**: Markdown。
     `;
-  
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-      });
-      return response.text || "生成总结失败。";
-    } catch (error) {
-      console.error("Gemini API Error:", error);
-      throw new Error("无法连接到 AI 服务。");
-    }
-  };
+
+  try {
+    const text = await callBackendGenerate(prompt);
+    return text || "生成总结失败。";
+  } catch (error) {
+    if (import.meta.env.DEV) console.error("Gemini API Error:", error);
+    throw new Error("无法连接到 AI 服务。");
+  }
+};
 
 export const suggestCategory = async (content: string): Promise<string> => {
-    const ai = getClient();
-    const prompt = `
+
+  const prompt = `
     请将以下内容归类为以下类别之一: Article (文章/写作), Note (笔记), Idea (灵感), Life (生活), Work (工作), Learning (学习), Other (其他)。
     内容: "${content}"
     只返回类别英文名称。
     `;
-    
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        return response.text?.trim() || 'Other';
-    } catch (e) {
-        return 'Other';
-    }
+
+  try {
+    const text = await callBackendGenerate(prompt);
+    return text?.trim() || 'Other';
+  } catch (e) {
+    return 'Other';
+  }
 }
