@@ -1,0 +1,5 @@
+{
+  "name": "LifeNotes - 个人知识库",
+  "description": "一个用于记录文章笔记、生活感悟和灵感的智能工具。支持 AI 自动分类和生成周度复盘报告。",
+  "requestFramePermissions": []
+}
